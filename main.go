@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -18,7 +19,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("couldn't set current user: %v", err)
 	}
-	fmt.Printf("Read config again: %+v\n", cfg)
 
 	state := config.State{
 		Cfg: &cfg,
@@ -27,7 +27,7 @@ func main() {
 	db, err := sql.Open("postgres", cfg.DBURL)
 
 	if err != nil {
-		fmt.Errorf("error for opening DB")
+		log.Fatal("error for opening DB %w", err)
 	}
 
 	defer db.Close()
@@ -44,6 +44,14 @@ func main() {
 	cmds.Register("register", config.RegisterHandler)
 	cmds.Register("reset", config.ResetHandler)
 	cmds.Register("users", config.GetUsersHandler)
+	cmds.Register("agg", config.AggHandler)
+	//cmds.Register("addfeed", config.AddFeedHandler)
+	cmds.Register("feeds", config.FeedsHandler)
+	cmds.Register("addfeed", MiddlewareLoggedIn(config.AddFeedHandler))
+	cmds.Register("follow", MiddlewareLoggedIn(config.FollowHandler))
+	cmds.Register("following", MiddlewareLoggedIn(config.FollowingHandler))
+	cmds.Register("unfollow", MiddlewareLoggedIn(config.UnfollowHandler))
+	cmds.Register("browse", MiddlewareLoggedIn(config.BrowseHandler))
 
 	if len(os.Args) < 2 {
 		log.Fatal("no command provided")
@@ -67,6 +75,16 @@ func main() {
 		log.Fatalf("error executing command: %v", err)
 	}
 
+}
+
+func MiddlewareLoggedIn(handler func(s *config.State, cmd config.Command, user database.User) error) func(*config.State, config.Command) error {
+	return func(s *config.State, cmd config.Command) error {
+		user, err := s.DB.GetUser(context.Background(), s.Cfg.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("user not logged in or doesn't exist: %w", err)
+		}
+		return handler(s, cmd, user)
+	}
 }
 
 //nvim ~/.gatorconfig.json
